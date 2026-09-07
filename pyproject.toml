@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "degradation-association-offline"
+version = "1.0.0"
+description = "One-shot RL latency degradation association over offline Prometheus data."
+readme = "README.md"
+requires-python = ">=3.9"
+license = {file = "LICENSE"}
+dependencies = [
+  "numpy",
+  "scikit-learn",
+  "scipy",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["experiment", "experiment.*"]
