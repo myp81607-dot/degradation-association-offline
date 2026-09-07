@@ -65,12 +65,19 @@ detection, confirmed/closed event tracking, and Top-25 association analysis.
 For every event phase with association entries, present the complete returned
 Top-25, or all entries when fewer are available. Group by English metric
 category in best-score order, then sort metrics within each group by descending
-score. Show only these columns:
+score. Keep every category in one contiguous block. Write the category name only
+in the first row of that block and leave the category cell blank in its
+remaining rows, even when the category contributes many Top-25 metrics. Do not
+repeat the category name and do not insert separator rows or horizontal rules
+between metrics or category blocks. Show only these columns:
 
 | Metric category | Metric name | Association score |
 |---|---|---:|
 | transfer_queue | tq_partition_consumption_progress | 94.80% |
+|  | tq_storage_utilization_ratio | 91.25% |
+|  | tq_storage_request_latency_p99 | 89.10% |
 | latency | rl_insight_monitor_perf_throughput | 88.60% |
+|  | rl_insight_monitor_perf_time_per_step | 84.30% |
 
 Precede the table with:
 
