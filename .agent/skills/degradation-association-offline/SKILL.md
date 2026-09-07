@@ -94,15 +94,26 @@ invent a diagnosis.
 
 ## 4. Root-cause analysis
 
-For each event phase with evidence, use the full grouped result, directions,
-labels, temporal coherence, contradictions, and the experience reference. The
-reference is a fallible prior; combine it with metric semantics and your own
-technical knowledge. Category size is not a vote.
+For each event phase with evidence, use the target, phase, metric names,
+categories, global ranks, final `association_percent` values, and the experience
+reference. Use only the returned final association scores for evidence strength.
+Do not reopen raw series, write another analysis script, compare step values, or
+independently infer increases, decreases, trends, or change magnitude.
+
+Combine association ranking with metric semantics and your own technical
+knowledge. When several high-ranking, high-scoring length or sequence metrics
+appear in `data_characteristics`, consider `Sequence-length anomaly` as a likely
+cause. A large category with weak scores is not equivalent evidence, and
+category size alone is not a vote. The experience reference remains a fallible
+prior.
 
 Use the fault domains `Compute`, `Network`, `Host CPU`, and `HBM`. Rank exactly
 two distinct domains and three to five plausible causes in confidence order.
 Low confidence is acceptable. Keep the reasoning concise and do not claim
 unobserved hardware, network, profiler, or operating-system signals.
+`Sequence-length anomaly` may rank first among causes when its score pattern is
+strong, although it is a workload/data condition rather than one of the four
+fault domains; keep unsupported infrastructure-domain confidence low.
 
 ```text
 Primary fault domain: <domain> (confidence: High|Medium|Low)
