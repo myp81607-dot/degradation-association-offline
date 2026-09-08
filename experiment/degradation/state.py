@@ -213,13 +213,16 @@ def _group_top_k(top_k: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
 
 
 def present_events(events: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
-    presented = json.loads(json.dumps(list(events)))
-    for event in presented:
-        for phase in ("confirmed", "closed"):
-            value = event["association"].get(phase)
-            if value is None:
-                continue
-            value["top_k_by_category"] = _group_top_k(value.pop("top_k"))
+    """Present only final closed-event association results."""
+
+    presented = []
+    for event in json.loads(json.dumps(list(events))):
+        closed = event["association"].get("closed")
+        if closed is None:
+            continue
+        closed["top_k_by_category"] = _group_top_k(closed.pop("top_k"))
+        event["association"] = {"closed": closed}
+        presented.append(event)
     return presented
 
 

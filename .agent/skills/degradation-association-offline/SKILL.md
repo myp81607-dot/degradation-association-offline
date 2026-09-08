@@ -11,7 +11,7 @@ association ranking, or metric categories.
 
 Read [algorithm-contract.md](references/algorithm-contract.md) before running the
 analysis. Read [diagnostic-experience.md](references/diagnostic-experience.md)
-only when at least one confirmed or closed event contains association entries.
+only when at least one closed event contains association entries.
 
 ## 1. Environment check
 
@@ -61,9 +61,12 @@ step. A separately supplied baseline may be selected with `--baseline-file`.
 Wait for the command to finish. Do not stop after baseline training and do not
 split a batch into repeated monitor calls. The one command performs point
 detection, confirmed/closed event tracking, and Top-25 association analysis.
+Unlike online monitoring, offline analysis has no `latest` phase. Persisted
+confirmed data is internal lifecycle evidence; report only final closed events.
 
-For every event phase with association entries, present the complete returned
-Top-25, or all entries when fewer are available. Group by English metric
+For every closed event with association entries, present the complete returned
+Top-25, or all entries when fewer are available. Never render or diagnose its
+confirmed phase. Group by English metric
 category in best-score order, then sort metrics within each group by descending
 score. Keep every category in one contiguous block. Write the category name only
 in the first row of that block and leave the category cell blank in its
@@ -87,18 +90,18 @@ Precede the table with:
 
 ```text
 Abnormal target metric: <target>
-Event phase: <confirmed|closed>
+Event phase: closed
 Saved result: <absolute abnormal_data.json path>
 ```
 
 Association score is relative evidence, not fault probability or causality. If
-there are no events, state that the batch produced no abnormal target event. If
-an event phase has no association entries, report its stored status and do not
-invent a diagnosis.
+there are no closed events, state that the batch produced no completed abnormal
+target event. If a closed event has no association entries, report its stored
+status and do not invent a diagnosis.
 
 ## 4. Root-cause analysis
 
-For each event phase with evidence, use the target, phase, metric names,
+For each closed event with evidence, use the target, closed phase, metric names,
 categories, global ranks, final `association_percent` values, and the experience
 reference. Use only the returned final association scores for evidence strength.
 Do not reopen raw series, write another analysis script, compare step values, or

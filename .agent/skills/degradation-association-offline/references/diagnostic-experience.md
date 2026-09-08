@@ -118,8 +118,8 @@ length/sequence metrics dominate the association scores.
 
 ## Synthesis rules
 
-1. Match the exact target event and phase before diagnosing. Confirmed and
-   closed transitions receive separate reports.
+1. Match the exact closed target event before diagnosing. Offline output reports
+   only the closed phase; never generate a separate confirmed-phase diagnosis.
 2. Read all metrics in the grouped Top-25. Use metric meaning, category, global
    rank, and final association score only. Do not use raw values, direction,
    point state, candidate abnormality, labels, component scores, or independently

@@ -9,7 +9,7 @@ Prometheus matrix JSON/TXT
   -> load a frozen baseline or train it from the first 30 complete steps
   -> classify later steps and track target events
   -> calculate correlation/random-forest association at confirmed and closed
-  -> save event JSON and present grouped Top-25 evidence
+  -> save event JSON and present grouped closed-phase Top-25 evidence
 ```
 
 ## Input and alignment
@@ -68,5 +68,6 @@ support association but never trigger target events.
 
 `standard_data.json` stores fitted baseline ranges, not the raw first 30 steps.
 `abnormal_data.json` stores confirmed/closed events and flat deterministic
-Top-25 records. CLI stdout presents the same records grouped by metric category
-for model interpretation.
+Top-25 records. Offline analysis has no `latest` phase. CLI stdout omits open and
+confirmed-phase results and presents only closed-phase records grouped by metric
+category for model interpretation.

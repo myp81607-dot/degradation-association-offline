@@ -30,7 +30,7 @@ The command automatically:
 - otherwise trains and saves it from the first 30 complete steps;
 - analyzes every later complete step;
 - writes deterministic event records to `abnormal_data.json`;
-- prints grouped association evidence for every confirmed and closed event.
+- prints grouped association evidence only for final closed events.
 
 Use an existing baseline from another path with `--baseline-file` and choose a
 different result path with `--output`.
