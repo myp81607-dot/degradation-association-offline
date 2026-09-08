@@ -100,20 +100,26 @@ reference. Use only the returned final association scores for evidence strength.
 Do not reopen raw series, write another analysis script, compare step values, or
 independently infer increases, decreases, trends, or change magnitude.
 
-Combine association ranking with metric semantics and your own technical
-knowledge. When several high-ranking, high-scoring length or sequence metrics
-appear in `data_characteristics`, consider `Sequence-length anomaly` as a likely
-cause. A large category with weak scores is not equivalent evidence, and
-category size alone is not a vote. The experience reference remains a fallible
-prior.
+Do not use candidate direction, point state (`NORMAL`, `UP`, `DOWN`, or
+`BETWEEN_MODES`), matched mode, or candidate abnormality as a diagnosis gate.
+Combine association ranking with metric semantics and technical knowledge. When
+length or sequence metrics occupy a substantial part of the returned Top-K,
+`Sequence-length anomaly` MUST appear among the likely causes. When they also
+form the leading high-scoring evidence group, it MUST be cause 1. Apply this rule
+regardless of candidate direction or point state; do not infer whether sequence
+length increased or decreased. Many weak scores alone do not justify high
+confidence. This length-family rule is the explicit exception to the general
+rule that category size alone is not a vote. The experience reference remains a
+fallible prior.
 
 Use the fault domains `Compute`, `Network`, `Host CPU`, and `HBM`. Rank exactly
 two distinct domains and three to five plausible causes in confidence order.
 Low confidence is acceptable. Keep the reasoning concise and do not claim
 unobserved hardware, network, profiler, or operating-system signals.
-`Sequence-length anomaly` may rank first among causes when its score pattern is
-strong, although it is a workload/data condition rather than one of the four
-fault domains; keep unsupported infrastructure-domain confidence low.
+`Sequence-length anomaly` is a workload/data condition rather than one of the
+four fault domains. When the sequence-length rule applies, the two fault domains
+are only infrastructure alternatives and must not displace that diagnosis; keep
+them low-confidence unless stronger non-length association evidence exists.
 
 ```text
 Primary fault domain: <domain> (confidence: High|Medium|Low)
