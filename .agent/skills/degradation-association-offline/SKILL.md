@@ -69,7 +69,11 @@ score. Keep every category in one contiguous block. Write the category name only
 in the first row of that block and leave the category cell blank in its
 remaining rows, even when the category contributes many Top-25 metrics. Do not
 repeat the category name and do not insert separator rows or horizontal rules
-between metrics or category blocks. Show only these columns:
+between metrics or category blocks. The following table is mandatory: do not
+replace it with JSON, bullets, prose, or a summary; do not add, remove, rename,
+or reorder columns; and do not omit returned Top-K rows. Copy the stored
+`association_percent` number directly and append `%`; never multiply, divide,
+normalize, or recalculate it. Reproduce this structure exactly:
 
 | Metric category | Metric name | Association score |
 |---|---|---:|
