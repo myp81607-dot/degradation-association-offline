@@ -149,7 +149,17 @@ def association_json(
     }
 
 
-def event_json(event: DegradationEvent, confirmed: Mapping[str, Any]) -> dict[str, Any]:
+def event_json(
+    event: DegradationEvent,
+    association: Mapping[str, Any],
+    *,
+    phase: str,
+) -> dict[str, Any]:
+    """Serialize one final event view and its single whole-event analysis."""
+
+    if phase not in {"closed", "open_at_range_end"}:
+        raise ValueError("phase must be closed or open_at_range_end")
+
     return {
         "target": event.identity.name,
         "target_labels": dict(event.identity.labels),
@@ -160,26 +170,12 @@ def event_json(event: DegradationEvent, confirmed: Mapping[str, Any]) -> dict[st
         "end_time": event.end_time,
         "confirmed_at_step": event.confirmed_at_step,
         "confirmed_at_time": event.confirmed_at_time,
-        "closed_at_step": None,
-        "closed_at_time": None,
+        "closed_at_step": event.closed_at_step,
+        "closed_at_time": event.closed_at_time,
         "abnormal_points": event.abnormal_points,
-        "association": {"confirmed": dict(confirmed), "closed": None},
+        "event_state": phase,
+        "association": {phase: dict(association)},
     }
-
-
-def close_event_json(
-    record: dict[str, Any], event: DegradationEvent, closed: Mapping[str, Any]
-) -> None:
-    record.update(
-        {
-            "end_step": event.end_step,
-            "end_time": event.end_time,
-            "closed_at_step": event.closed_at_step,
-            "closed_at_time": event.closed_at_time,
-            "abnormal_points": event.abnormal_points,
-        }
-    )
-    record["association"]["closed"] = dict(closed)
 
 
 def save_events(path: Path, events: Sequence[Mapping[str, Any]]) -> None:
@@ -213,15 +209,16 @@ def _group_top_k(top_k: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
 
 
 def present_events(events: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
-    """Present only final closed-event association results."""
+    """Present closed and range-end-open event association results."""
 
     presented = []
     for event in json.loads(json.dumps(list(events))):
-        closed = event["association"].get("closed")
-        if closed is None:
+        phase = str(event.get("event_state", "closed"))
+        association = event["association"].get(phase)
+        if association is None:
             continue
-        closed["top_k_by_category"] = _group_top_k(closed.pop("top_k"))
-        event["association"] = {"closed": closed}
+        association["top_k_by_category"] = _group_top_k(association.pop("top_k"))
+        event["association"] = {phase: association}
         presented.append(event)
     return presented
 
@@ -230,7 +227,6 @@ __all__ = [
     "BaselineSnapshot",
     "StateError",
     "association_json",
-    "close_event_json",
     "event_json",
     "load_baseline",
     "present_events",

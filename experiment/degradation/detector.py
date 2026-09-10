@@ -102,7 +102,7 @@ class _ActiveEvent:
 
 @dataclass(frozen=True)
 class DegradationEvent:
-    """Immutable event snapshot emitted at confirmation or closure."""
+    """Immutable event snapshot emitted at confirmation, closure, or range end."""
 
     identity: SeriesId
     direction: Direction
@@ -331,6 +331,7 @@ class EventTracker:
                 closed_by=point,
             )
             self.current_event = None
+            self.recent_points.clear()
             return EventUpdate(
                 point=point,
                 evidence_abnormal_points=evidence_count,
@@ -364,6 +365,21 @@ class EventTracker:
             point=point,
             evidence_abnormal_points=evidence_count,
             confirmed_event=confirmed,
+        )
+
+    def snapshot_open_event(self) -> DegradationEvent | None:
+        """Return the current confirmed event without closing it."""
+
+        if self.current_event is None:
+            return None
+        evidence_count = sum(
+            point.valid and point.abnormal and point.direction is Direction.UP
+            for point in self.recent_points
+        )
+        return _event_snapshot(
+            self.current_event,
+            self.parameters,
+            evidence_count,
         )
 
 

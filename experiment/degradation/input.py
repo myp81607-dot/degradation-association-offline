@@ -1,112 +1,60 @@
-"""Load and merge Prometheus matrix responses from JSON or text files."""
+"""Read a selected time range directly from a local Prometheus TSDB."""
 
 from __future__ import annotations
 
 import json
 import math
+import re
+import shutil
+import subprocess
 from collections import defaultdict
-from collections.abc import Iterable, Mapping
 from pathlib import Path
-from typing import Any
 
 from .series import Sample, SeriesDataError, SeriesId, TimeSeries
 
+DEFAULT_TSDB_DIR = Path.home() / ".rl-insight" / "data" / "prometheus"
+DEFAULT_PROMTOOL_ROOT = Path.home() / ".rl-insight" / "services" / "prometheus"
+
+_SAMPLE_LINE = re.compile(r"^(\{.*\})\s+(\S+)\s+(-?\d+)$")
+_LABEL = re.compile(r'([a-zA-Z_][a-zA-Z0-9_]*)=("(?:\\.|[^"\\])*")')
+
 
 class OfflineInputError(ValueError):
-    """Offline input cannot be interpreted as Prometheus matrix data."""
+    """The local TSDB cannot provide the requested samples."""
 
 
-def _input_files(paths: Iterable[Path]) -> list[Path]:
-    files: list[Path] = []
-    for raw_path in paths:
-        path = Path(raw_path).expanduser()
-        if path.is_dir():
-            files.extend(
-                item
-                for item in sorted(path.rglob("*"))
-                if item.is_file() and item.suffix.lower() in {".json", ".txt"}
-            )
-        elif path.is_file():
-            files.append(path)
-        else:
-            raise OfflineInputError(f"input path does not exist: {path}")
-    if not files:
-        raise OfflineInputError("no .json or .txt input files were found")
-    return files
+def _promtool(explicit: Path | None) -> Path:
+    if explicit is not None:
+        return explicit.expanduser()
+    system = shutil.which("promtool")
+    if system:
+        return Path(system)
+    installed = sorted(DEFAULT_PROMTOOL_ROOT.rglob("promtool"))
+    if installed:
+        return installed[-1]
+    raise OfflineInputError("promtool was not found")
 
 
-def _matrix_entries(payload: Any, *, source: Path) -> list[Mapping[str, Any]]:
-    if isinstance(payload, list):
-        if all(isinstance(item, Mapping) and "metric" in item for item in payload):
-            return list(payload)
-        entries: list[Mapping[str, Any]] = []
-        for item in payload:
-            entries.extend(_matrix_entries(item, source=source))
-        return entries
-    if not isinstance(payload, Mapping):
-        raise OfflineInputError(f"{source}: expected a JSON object or array")
-
-    if "series" in payload:
-        return _matrix_entries(payload["series"], source=source)
-    if "data" in payload:
-        data = payload["data"]
-        if not isinstance(data, Mapping):
-            raise OfflineInputError(f"{source}: data must be an object")
-        result_type = data.get("resultType")
-        if result_type is not None and result_type != "matrix":
-            raise OfflineInputError(
-                f"{source}: expected Prometheus matrix data, got {result_type!r}"
-            )
-        return _matrix_entries(data.get("result"), source=source)
-    if "result" in payload:
-        return _matrix_entries(payload["result"], source=source)
-    if "metric" in payload:
-        return [payload]
-    raise OfflineInputError(f"{source}: no Prometheus matrix result was found")
+def _label_set(value: str) -> dict[str, str]:
+    return {
+        match.group(1): json.loads(match.group(2)) for match in _LABEL.finditer(value)
+    }
 
 
-def _samples(entry: Mapping[str, Any], *, source: Path) -> list[Sample]:
-    raw_values = entry.get("values")
-    if raw_values is None and "value" in entry:
-        raw_values = [entry["value"]]
-    if not isinstance(raw_values, list):
-        raise OfflineInputError(f"{source}: series values must be an array")
-    samples: list[Sample] = []
-    for raw in raw_values:
-        if not isinstance(raw, (list, tuple)) or len(raw) != 2:
-            raise OfflineInputError(
-                f"{source}: every sample must be [timestamp, value]"
-            )
-        try:
-            timestamp = float(raw[0])
-            value = float(raw[1])
-        except (TypeError, ValueError, OverflowError):
-            continue
-        if math.isfinite(timestamp) and math.isfinite(value):
-            samples.append(Sample(timestamp, value))
-    return samples
-
-
-def load_time_series(paths: Iterable[Path]) -> tuple[TimeSeries, ...]:
-    """Read files recursively and merge samples by concrete labeled series."""
-
+def _parse_dump(output: str) -> tuple[TimeSeries, ...]:
     merged: dict[SeriesId, dict[float, float]] = defaultdict(dict)
-    for path in _input_files(paths):
+    for line in output.splitlines():
+        match = _SAMPLE_LINE.match(line.strip())
+        if match is None:
+            continue
         try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError) as exc:
-            raise OfflineInputError(f"cannot read JSON from {path}: {exc}") from exc
-        for entry in _matrix_entries(payload, source=path):
-            metric = entry.get("metric")
-            if not isinstance(metric, Mapping):
-                raise OfflineInputError(f"{path}: series metric must be an object")
-            try:
-                identity = SeriesId.from_label_set(metric)
-            except SeriesDataError as exc:
-                raise OfflineInputError(f"{path}: {exc}") from exc
-            for sample in _samples(entry, source=path):
-                merged[identity][sample.timestamp] = sample.value
-
+            identity = SeriesId.from_label_set(_label_set(match.group(1)))
+            value = float(match.group(2))
+            timestamp = int(match.group(3)) / 1000.0
+        except (SeriesDataError, ValueError, json.JSONDecodeError):
+            continue
+        if math.isfinite(value):
+            merged[identity][timestamp] = value
     return tuple(
         TimeSeries(
             identity=identity,
@@ -119,4 +67,37 @@ def load_time_series(paths: Iterable[Path]) -> tuple[TimeSeries, ...]:
     )
 
 
-__all__ = ["OfflineInputError", "load_time_series"]
+def load_time_series(
+    data_dir: Path,
+    *,
+    start_time: float,
+    end_time: float,
+    metric_names: frozenset[str],
+    promtool_path: Path | None = None,
+) -> tuple[TimeSeries, ...]:
+    """Dump configured scalar series from the RL-Insight Prometheus TSDB."""
+
+    selector = (
+        '{__name__=~"^(' + "|".join(sorted(map(re.escape, metric_names))) + ')$"}'
+    )
+    command = [
+        str(_promtool(promtool_path)),
+        "tsdb",
+        "dump",
+        f"--min-time={int(start_time * 1000)}",
+        f"--max-time={int(end_time * 1000)}",
+        f"--match={selector}",
+        str(data_dir.expanduser()),
+    ]
+    completed = subprocess.run(command, capture_output=True, text=True, check=False)
+    if completed.returncode:
+        raise OfflineInputError(completed.stderr.strip() or "promtool tsdb dump failed")
+    series = _parse_dump(completed.stdout)
+    if not series:
+        raise OfflineInputError(
+            "the selected time range contains no configured metrics"
+        )
+    return series
+
+
+__all__ = ["DEFAULT_TSDB_DIR", "OfflineInputError", "load_time_series"]

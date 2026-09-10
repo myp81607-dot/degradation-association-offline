@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "degradation-association-offline"
 version = "1.0.0"
-description = "One-shot RL latency degradation association over offline Prometheus data."
+description = "One-shot RL latency degradation association over a local Prometheus TSDB range."
 readme = "README.md"
 requires-python = ">=3.9"
 license = {file = "LICENSE"}

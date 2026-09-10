@@ -1,6 +1,6 @@
 ---
 name: degradation-association-offline
-description: "Analyze saved Prometheus JSON/TXT batches for RL training latency degradation, grouped Top-25 associations, and concise root-cause hypotheses. Use for offline data, not live monitoring."
+description: "Analyze a user-selected time range from the local RL-Insight Prometheus TSDB, then save grouped Top-25 degradation associations and concise root-cause hypotheses under analysis/. Use for one-shot offline analysis, not live monitoring."
 ---
 
 # Offline degradation association
@@ -11,7 +11,9 @@ association ranking, or metric categories.
 
 Read [algorithm-contract.md](references/algorithm-contract.md) before running the
 analysis. Read [diagnostic-experience.md](references/diagnostic-experience.md)
-only when at least one closed event contains association entries.
+only when at least one final event contains association entries.
+Use the exact Chinese metric meanings in the repository-root
+`metric-name-catalog.md` when rendering association tables.
 
 ## 1. Environment check
 
@@ -19,89 +21,110 @@ Locate the checkout containing `experiment/degradation/cli.py` and run commands
 from its repository root. If imports are missing, report them and ask before
 running `pip install -e .`.
 
-Use `outputs/degradation-association-offline` as the default state directory
-unless the user supplies another path. The files are:
+Use RL-Insight's default Prometheus TSDB at
+`~/.rl-insight/data/prometheus`. Use `analysis` as the report root unless the
+user supplies another path. Without `--baseline-file`, a run uses:
 
 ```text
-<state-dir>/standard_data.json   # fitted or loaded baseline
-<state-dir>/abnormal_data.json   # events and association evidence
+analysis/<start>_<end>/standard_data.json
+analysis/<start>_<end>/abnormal_data.json
+analysis/<start>_<end>/analysis.json
+analysis/<start>_<end>/report.md
 ```
+
+With `--baseline-file`, the baseline remains at the supplied path; the other
+three outputs remain in the report directory.
 
 ## 2. Offline data input
 
-Accept one or more Prometheus matrix files or directories. Both `.json` and
-`.txt` extensions are accepted when their contents are valid JSON. Merge all
-files by metric name, complete label set, and timestamp. Preserve labels and
-use `rl_insight_monitor_training_global_step` as the step ruler.
+Require the user to supply `--start-time` and `--end-time` as Unix seconds or
+ISO-8601 timestamps with timezone. Read that range directly from RL-Insight's
+local Prometheus TSDB with `promtool tsdb dump`; do not query a Prometheus HTTP
+port and do not ask the model to parse TSDB block files itself. Use
+`rl_insight_monitor_training_global_step` as the step ruler.
+Skip the global-step value already visible immediately after `--start-time` and
+begin with the next observed step transition, so the first analyzed step did not
+begin before the selected range.
 
 Keep all discovered configured metrics. Never restrict input to trainer metrics
 or discard non-trainer candidates. Exactly the eight `timing_s_*` metrics in the
 algorithm contract are event targets; the other configured scalar metrics are
 candidate evidence.
 
-If a text export is not valid JSON, inspect its actual structure. Write a small
-temporary converter only when needed, producing Prometheus matrix entries with
-`metric` and `values: [[timestamp, value], ...]`. Do not invent timestamps,
-values, metric names, or labels, and do not collapse differently labeled series.
-
 ## 3. One-shot anomaly and association analysis
 
-Run the complete batch once:
+Run the selected range once:
 
 ```bash
-python -m experiment.degradation.cli analyze <file-or-directory> [...] \
-  --state-dir outputs/degradation-association-offline
+python -m experiment.degradation.cli analyze \
+  --start-time <ISO-8601-or-Unix-seconds> \
+  --end-time <ISO-8601-or-Unix-seconds>
 ```
 
-If `standard_data.json` exists, the command loads it and analyzes complete input
-steps after that baseline's `end_step`. Otherwise it trains the baseline from
-the first 30 complete steps, saves it, and analyzes every remaining complete
-step. A separately supplied baseline may be selected with `--baseline-file`.
+By default the command trains a baseline from the first 30 complete steps in the
+selected range and saves it in that run's report directory. Use
+`--baseline-file` to load an existing baseline instead.
 
 Wait for the command to finish. Do not stop after baseline training and do not
-split a batch into repeated monitor calls. The one command performs point
-detection, confirmed/closed event tracking, and Top-25 association analysis.
-Unlike online monitoring, offline analysis has no `latest` phase. Persisted
-confirmed data is internal lifecycle evidence; report only final closed events.
+split the range into repeated calls. The one command performs point detection,
+confirmed/closed event tracking, and one whole-event Top-25 association analysis
+when each event closes. If a confirmed event is still open at the selected range
+end, the same command analyzes its accumulated context through the final complete
+step and marks it `open_at_range_end`. Offline analysis has no `latest` phase and
+does not run association at confirmation.
 
-For every closed event with association entries, present the complete returned
+Continue only when the command exits successfully and returns `status=ok`. On a
+nonzero exit, report stderr and do not produce a no-anomaly conclusion.
+
+For every final event with association entries, present the complete returned
 Top-25, or all entries when fewer are available. Never render or diagnose its
-confirmed phase. Group by English metric
-category in best-score order, then sort metrics within each group by descending
-score. Keep every category in one contiguous block. Write the category name only
-in the first row of that block and leave the category cell blank in its
+confirmed phase. A final event phase is either `closed` or `open_at_range_end`.
+Group by English metric category in best-score order, then sort metrics within
+each group by descending score. Keep every category in one contiguous block.
+Write the category name only in the first row of that block and leave the
+category cell blank in its
 remaining rows, even when the category contributes many Top-25 metrics. Do not
 repeat the category name and do not insert separator rows or horizontal rules
 between metrics or category blocks. The following table is mandatory: do not
 replace it with JSON, bullets, prose, or a summary; do not add, remove, rename,
-or reorder columns; and do not omit returned Top-K rows. Copy the stored
-`association_percent` number directly and append `%`; never multiply, divide,
-normalize, or recalculate it. Reproduce this structure exactly:
+or reorder columns; and do not omit returned Top-K rows. Copy each Chinese
+meaning verbatim from `metric-name-catalog.md`; do not translate, shorten, or
+infer it. Copy the stored `association_percent` number directly and append `%`;
+never multiply, divide, normalize, or recalculate it. Reproduce this structure
+exactly:
 
-| Metric category | Metric name | Association score |
-|---|---|---:|
-| transfer_queue | tq_partition_consumption_progress | 94.80% |
-|  | tq_storage_utilization_ratio | 91.25% |
-|  | tq_storage_request_latency_p99 | 89.10% |
-| latency | rl_insight_monitor_perf_throughput | 88.60% |
-|  | rl_insight_monitor_perf_time_per_step | 84.30% |
+| Metric category | Metric name | Metric meaning | Association score |
+|---|---|---|---:|
+| transfer_queue | tq_partition_consumption_progress | TransferQueue 各分区各任务消费进度（0–1）。 | 94.80% |
+|  | tq_storage_utilization_ratio | TransferQueue 存储当前有效键数相对容量上限的比例。 | 91.25% |
+|  | tq_storage_request_latency_p99 | TransferQueue 存储请求时延 P99（s）。 | 89.10% |
+| latency | rl_insight_monitor_perf_throughput | 按设备数归一化的训练吞吐量（token/s/device）。 | 88.60% |
+|  | rl_insight_monitor_perf_time_per_step | 当前训练 step 耗时（s）。 | 84.30% |
 
 Precede the table with:
 
 ```text
 Abnormal target metric: <target>
-Event phase: closed
+Target labels: <labels>
+Event steps: <start_step> -> <closed_at_step|range end>
+Event phase: <closed|open_at_range_end>
 Saved result: <absolute abnormal_data.json path>
 ```
 
 Association score is relative evidence, not fault probability or causality. If
-there are no closed events, state that the batch produced no completed abnormal
-target event. If a closed event has no association entries, report its stored
-status and do not invent a diagnosis.
+`processed_step_count` is zero, state that the batch trained or loaded a baseline
+but did not run detection. Otherwise, if there are no final events, state that
+the analyzed steps produced no confirmed abnormal target event. If a final event
+has no association entries, report its stored status and do not invent a
+diagnosis.
+
+Save the complete Markdown result to the returned `report_path` under
+`analysis/<start>_<end>/report.md`, including the no-final-event result when no
+table or root-cause analysis is produced.
 
 ## 4. Root-cause analysis
 
-For each closed event with evidence, use the target, closed phase, metric names,
+For each final event with evidence, use the target, event phase, metric names,
 categories, global ranks, final `association_percent` values, and the experience
 reference. Use only the returned final association scores for evidence strength.
 Do not reopen raw series, write another analysis script, compare step values, or

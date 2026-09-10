@@ -1,9 +1,10 @@
 # Degradation Association Offline
 
-Run the rl-insight degradation detector once over saved Prometheus matrix data.
-The first 30 complete global steps train a baseline when no baseline file exists;
-the remaining steps are processed for target events and grouped Top-25
-association evidence.
+Run the rl-insight degradation detector once over a user-selected time range in
+the local Prometheus TSDB. The first step value visible after the selected start
+is skipped as potentially partial. The next 30 complete steps train a baseline
+when no baseline file is supplied; later steps are processed for target events
+and grouped Top-25 association evidence.
 
 ## Install
 
@@ -16,44 +17,31 @@ pip install -e .
 ## Analyze a batch
 
 ```bash
-python -m experiment.degradation.cli analyze data/ \
-  --state-dir outputs/degradation-association-offline
+python -m experiment.degradation.cli analyze \
+  --start-time 2026-09-08T09:00:00+08:00 \
+  --end-time 2026-09-08T12:00:00+08:00
 ```
 
-Inputs may be individual `.json`/`.txt` files or directories. File contents
-must be valid JSON containing Prometheus `query_range` matrix results. Multiple
-files are merged by metric name, labels, and timestamp.
+The command reads `~/.rl-insight/data/prometheus` directly with
+`promtool tsdb dump`; it does not query the Prometheus HTTP port. Override these
+defaults with `--data-dir`, `--promtool`, or `--analysis-dir` when needed.
 
 The command automatically:
 
-- loads `standard_data.json` from the state directory when present;
-- otherwise trains and saves it from the first 30 complete steps;
+- loads an explicitly supplied `--baseline-file`;
+- otherwise trains and saves a baseline from the first 30 complete steps;
 - analyzes every later complete step;
-- writes deterministic event records to `abnormal_data.json`;
-- prints grouped association evidence only for final closed events.
+- runs association once when an event closes, or at the selected range end when
+  a confirmed event remains open;
+- writes `standard_data.json`, `abnormal_data.json`, and `analysis.json` under
+  `analysis/<start>_<end>/` when using the default baseline path;
+- prints deterministic evidence for `closed` and `open_at_range_end` events.
 
-Use an existing baseline from another path with `--baseline-file` and choose a
-different result path with `--output`.
+The agent uses that evidence to write `report.md`, including the grouped table,
+Chinese metric meanings, and root-cause analysis. With `--baseline-file`, the
+supplied baseline remains outside the report directory.
 
-## Accepted matrix shape
-
-```json
-{
-  "status": "success",
-  "data": {
-    "resultType": "matrix",
-    "result": [
-      {
-        "metric": {
-          "__name__": "rl_insight_monitor_training_global_step",
-          "job": "training"
-        },
-        "values": [[1000, "0"], [1010, "1"]]
-      }
-    ]
-  }
-}
-```
+Use an existing baseline from another path with `--baseline-file`.
 
 The algorithm retains the online experiment's eight latency targets, 102
 candidate metrics, KDE baseline, 3-of-5 event lifecycle, and 0.85 correlation /

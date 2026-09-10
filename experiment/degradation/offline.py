@@ -24,7 +24,6 @@ from .series import SeriesId, TimeSeries
 from .state import (
     BaselineSnapshot,
     association_json,
-    close_event_json,
     event_json,
     load_baseline,
     present_events,
@@ -60,10 +59,12 @@ def _global_step_series(series: Sequence[TimeSeries]) -> TimeSeries:
 
 
 def _step_span(global_steps: TimeSeries) -> tuple[int, int]:
+    """Return the first complete step after range start and the final boundary."""
+
     if not global_steps.samples:
         raise OfflineAnalysisError("global-step series is empty")
     steps = [_step_number(sample.value) for sample in global_steps.samples]
-    return min(steps), max(steps)
+    return min(steps) + 1, max(steps)
 
 
 def _dominant_direction(
@@ -179,40 +180,54 @@ class OfflineAnalyzer:
                         row for row in self.recent if row[identity].step >= first_step
                     ]
                     self.active_contexts[identity] = context
-                    self.events.append(
-                        event_json(event, self._association(event, context))
-                    )
                 if update.closed_event is not None:
                     event = update.closed_event
                     context = self.active_contexts.pop(identity)
-                    matches = [
-                        record
-                        for record in self.events
-                        if record["target"] == identity.name
-                        and record["target_labels"] == dict(identity.labels)
-                        and record["start_step"] == event.start_step
-                        and record["confirmed_at_step"] == event.confirmed_at_step
-                    ]
-                    if len(matches) != 1:
-                        raise OfflineAnalysisError(
-                            "cannot match the confirmed event to its closed phase"
+                    self.events.append(
+                        event_json(
+                            event,
+                            self._association(event, context),
+                            phase="closed",
                         )
-                    close_event_json(
-                        matches[0], event, self._association(event, context)
                     )
             self._last_step = frame.step
 
+    def finalize_range_end(self) -> None:
+        """Analyze confirmed events that remain open at the selected range end."""
+
+        for identity, tracker in sorted(self.trackers.items()):
+            event = tracker.snapshot_open_event()
+            if event is None:
+                continue
+            context = self.active_contexts.pop(identity)
+            self.events.append(
+                event_json(
+                    event,
+                    self._association(event, context),
+                    phase="open_at_range_end",
+                )
+            )
+
 
 def analyze_offline(
-    inputs: Sequence[Path],
+    data_dir: Path,
     *,
+    start_time: float,
+    end_time: float,
     baseline_path: Path,
     output_path: Path,
+    promtool_path: Path | None = None,
 ) -> dict[str, Any]:
-    """Load one batch, train or load a baseline, then analyze remaining steps."""
+    """Read one TSDB range and analyze each final event once."""
 
-    all_series = load_time_series(inputs)
     configured_names = {GLOBAL_STEP_METRIC, *TARGET_METRICS, *CANDIDATE_METRICS}
+    all_series = load_time_series(
+        data_dir,
+        start_time=start_time,
+        end_time=end_time,
+        metric_names=frozenset(configured_names),
+        promtool_path=promtool_path,
+    )
     selected_series = tuple(
         item for item in all_series if item.identity.name in configured_names
     )
@@ -274,6 +289,7 @@ def analyze_offline(
                 step_count=detection_count,
             )
         )
+        analyzer.finalize_range_end()
     save_events(output_path, analyzer.events)
     return {
         "status": "ok",
@@ -285,7 +301,9 @@ def analyze_offline(
             "series_count": len(snapshot.baselines),
         },
         "analysis": {
-            "input_file_count": len(inputs),
+            "data_dir": str(data_dir.expanduser().resolve()),
+            "start_time": start_time,
+            "end_time": end_time,
             "detection_start_step": detection_start if detection_count else None,
             "detection_end_step": final_boundary - 1 if detection_count else None,
             "processed_step_count": detection_count,
